@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Translate Crash Lab</title>
+<meta name="description" content="Interactive demo: Google Translate makes React dropdowns crash with removeChild NotFoundError, and the one-line fix.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a test bench. Controls on top, the product form on the left, instruments on the right, notes below. */
+:root {
+  --bg: #f3f4f6; --panel: #ffffff; --ink: #111827; --muted: #5b6474; --line: #dfe3ea;
+  --accent: #1f4fd1; --bad: #c42b1c; --good: #16794a; --gt: #fff1b8; --gt-line: #d4a300; --code: #eef1f6;
+  --font-ui: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1116; --panel: #161a21; --ink: #e6e9ef; --muted: #9aa3b2; --line: #2a303b;
+    --accent: #85a6ff; --bad: #ff7b6b; --good: #5ad491; --gt: #4b3d07; --gt-line: #e2b42a; --code: #1d232d;
+    color-scheme: dark;
+  }
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 14px; line-height: 1.55;
+  padding: 32px max(16px, env(safe-area-inset-right, 0px)) 56px max(16px, env(safe-area-inset-left, 0px));
+}
+h1, h2, h3, p, ol, ul, fieldset, legend { margin: 0; padding: 0; }
+fieldset { border: 0; min-width: 0; }
+button, input, select { font: inherit; color: inherit; }
+.page { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+.page-head { display: flex; flex-direction: column; gap: 10px; max-width: 80ch; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.page-head h1 { font-size: 28px; line-height: 1.2; font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
+.page-head p { color: var(--muted); font-size: 15px; }
+.page a { color: var(--accent); }
+code { font-family: var(--font-mono); font-size: 0.88em; }
+
+/* Lab chrome */
+.lab { display: flex; flex-direction: column; gap: 16px; }
+.lab-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.lab-controls { gap: 14px; }
+.lab-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.lab-k { font-family: var(--font-mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); width: 86px; }
+.lab-seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 3px; background: var(--bg); }
+.lab-seg button { font-weight: 500; padding: 7px 12px; border: 0; border-radius: 7px; color: var(--muted); background: transparent; cursor: pointer; }
+.lab-seg button.on { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / 0.12); }
+.lab-seg b { font-family: var(--font-mono); }
+.lab-hint { color: var(--muted); font-size: 13px; }
+.lab-btn { font-weight: 500; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+.lab-btn:hover:not(:disabled) { border-color: var(--muted); }
+.lab-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.lab-btn-primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.lab-btn-on { border-color: var(--gt-line); background: var(--gt); }
+.lab-select { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); }
+.lab-select select, .lab-panel-head select { color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+.lab-status { display: flex; flex-wrap: wrap; gap: 8px 24px; padding-top: 12px; border-top: 1px solid var(--line); }
+.lab-status span { display: flex; flex-direction: column; }
+.lab-status i { font-style: normal; font-size: 12px; color: var(--muted); }
+.lab-status b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.lab-status b.bad, td.bad { color: var(--bad); }
+.lab-status b.good, td.good { color: var(--good); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lab-split { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.lab-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.lab-panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.lab-panel-head h3 { font-size: 15px; font-weight: 600; }
+.lab-dom { margin: 0; background: var(--code); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; min-height: 150px; white-space: pre; }
+.lab-note { font-size: 13px; color: var(--muted); }
+.lab-log { list-style: none; display: flex; flex-direction: column; gap: 10px; max-height: 260px; overflow: auto; }
+.lab-log li { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; border-left: 2px solid var(--bad); }
+.lab-log-meta { font-size: 12px; color: var(--muted); }
+.lab-log-msg { font-family: var(--font-mono); font-size: 12px; color: var(--bad); overflow-wrap: anywhere; }
+.lab-log-stack { font-family: var(--font-mono); font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.lab-expect { width: 100%; border-collapse: collapse; font-size: 13px; }
+.lab-expect th, .lab-expect td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+.lab-expect th { font-size: 12px; color: var(--muted); font-weight: 500; }
+.lab-expect tr:last-child td { border-bottom: 0; }
+
+/* Product area: a light web app, kept light in both themes */
+.lab-app { background: #ffffff; color: #111827; border: 1px solid var(--line); border-radius: 12px; color-scheme: light; }
+.yb-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-bottom: 1px solid #e5e7eb; }
+.yb-title { font-size: 18px; font-weight: 600; }
+.yb-section { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; border-bottom: 1px solid #e5e7eb; }
+.yb-section:last-child { border-bottom: 0; }
+.yb-section legend { float: left; width: 100%; font-weight: 600; font-size: 13px; }
+.yb-label { font-size: 12px; color: #4b5563; margin-bottom: -8px; }
+.yb-phone, .yb-color { display: flex; gap: 6px; }
+.yb-dial { width: 96px; flex: none; }
+.yb-color > .ui-field:first-child { width: 120px; flex: none; }
+.yb-grow { flex: 1; min-width: 0; }
+.yb-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.lab-crash { min-height: 420px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 32px 20px; text-align: center; color: #4b5563; }
+.lab-crash strong { color: #111827; font-size: 15px; }
+.lab-crash code { color: #c42b1c; font-size: 12px; max-width: 46ch; }
+.lab-crash-icon { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #c42b1c; color: #c42b1c; display: grid; place-items: center; font-weight: 700; }
+
+/* Look-alike design system */
+.ui-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; position: relative; }
+.ui-label { font-size: 12px; color: #374151; }
+.ui-counter { font-size: 11px; color: #6b7280; align-self: flex-end; }
+.ui-input, .ui-trigger { height: 34px; width: 100%; padding: 0 10px; border: 1px solid #d1d5db; border-radius: 8px; background: #ffffff; color: #111827; font-size: 13px; }
+.ui-input:focus, .ui-trigger:focus-visible { outline: 2px solid #1f4fd1; outline-offset: -1px; }
+.ui-trigger { display: flex; align-items: center; justify-content: space-between; gap: 6px; cursor: pointer; text-align: start; }
+.ui-trigger-track { display: flex; min-width: 0; }
+.ui-trigger-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-chevron { width: 14px; height: 14px; color: #6b7280; flex: none; }
+.ui-placeholder { color: #6b7280; }
+.ui-button { height: 32px; padding: 0 14px; border-radius: 999px; border: 1px solid #d1d5db; background: #ffffff; color: #111827; font-weight: 500; cursor: pointer; }
+.ui-button-primary { background: #111827; color: #ffffff; border-color: #111827; }
+.ui-button:disabled { opacity: 0.4; cursor: not-allowed; }
+.ui-menu { position: relative; }
+.ui-popover { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 100%; width: max-content; max-width: 280px; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 10px 30px rgb(17 24 39 / 0.14); padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+.ui-search { height: 30px; }
+.ui-listbox { list-style: none; max-height: 220px; overflow: auto; }
+.ui-option { padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.ui-option:hover { background: #f3f4f6; }
+.ui-option.is-selected { font-weight: 600; }
+.ui-empty { padding: 6px 8px; color: #6b7280; }
+.ui-track { display: inline-flex; gap: 6px; align-items: baseline; min-width: 0; }
+.ui-track-end { color: #6b7280; }
+.ui-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+
+/* What the translator inserted */
+font.gt { background: #fff1b8; box-shadow: inset 0 -1px 0 #d4a300; }
+.ui-button-primary font.gt { background: transparent; box-shadow: inset 0 -1px 0 #f2c94c; }
+
+/* Notes */
+.notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+.notes section { display: flex; flex-direction: column; gap: 8px; }
+.notes h2 { font-size: 15px; font-weight: 600; }
+.notes p, .notes li { color: var(--muted); font-size: 13px; }
+.notes ol { padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.foot { border-top: 1px solid var(--line); padding-top: 14px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+
+@media (max-width: 960px) { .lab-split, .notes { grid-template-columns: 1fr; } .lab-k { width: 100%; } }
+@media (max-width: 520px) { .yb-grid { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="page-head">
+    <span class="eyebrow">React · Google Translate · removeChild</span>
+    <h1>Google Translate vs. React dropdowns</h1>
+    <p>A settings form for a <b>Spanish-language account</b>, built in React 18.3.1 with a small design system whose menu triggers render their label through a component created in <code>useCallback([children])</code>. Translate it to English as a customer would with Google Translate, type in <i>Nombre de la empresa</i> or change a dropdown, and watch React throw <code>NotFoundError: Failed to execute 'removeChild'</code>. Then switch to the fixed code and try again.</p>
+  </header>
+
+  <div id="lab"></div>
+
+  <div class="notes">
+    <section>
+      <h2>Try it in three steps</h2>
+      <ol>
+        <li>Leave mode <b>1 · As shipped</b> and press <b>Translate to English</b>. <i>Tu marca</i> becomes <i>Your brand</i>, <i>España</i> becomes <i>Spain</i>, and each highlighted piece of text is now Google's <code>&lt;font&gt;</code> wrapper.</li>
+        <li>Type one letter in <b>Nombre de la empresa</b> (now "Business name"). The phone dial code makes the whole form fail with "Your brand didn't load".</li>
+        <li>Switch to <b>2 · With fix</b>, translate again and repeat. Change <i>Comunidad autónoma</i>, <i>País</i> and the colour mode too. Nothing fails.</li>
+      </ol>
+    </section>
+    <section>
+      <h2>Use Chrome's real translator</h2>
+      <p>Right-click the page and choose <b>Translate to English</b> (or use the translate icon in the address bar), then type in the business name field. If Chrome doesn't offer translation, use the simulator. It makes the same DOM changes and uses a fixed Spanish → English word list.</p>
+      <p>Use <b>Scope</b> to translate one field at a time. Industry stays in Spanish after translating because its value lives in an input, which Translate doesn't touch. That's also why it never crashes.</p>
+    </section>
+    <section>
+      <h2>Why it fails</h2>
+      <p>When a trigger's <code>children</code> change identity, its label component changes type, so React removes the old label's text nodes. Translate has already replaced those nodes with <code>&lt;font&gt;</code> elements, so <code>removeChild</code> throws. Wrapping the label in a memoised <code>&lt;span&gt;</code> means React only removes elements, which Translate never moves.</p>
+      <p>Mode 3 adds a global <code>removeChild</code>/<code>insertBefore</code> guard. Nothing crashes, but the dial code label piles up stale text, so it's a backstop rather than a fix.</p>
+    </section>
+  </div>
+
+  <footer class="foot">
+    <span>Background: <a href="https://github.com/facebook/react/issues/11538" target="_blank" rel="noopener">facebook/react#11538</a>, "Make React resilient to DOM mutations from Google Translate".</span>
+    <span>All components on this page are a minimal look-alike written for the demo. Sample data only.</span>
+  </footer>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
